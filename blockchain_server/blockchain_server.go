@@ -1,4 +1,4 @@
-package blockchainserver
+package main
 
 import (
 	"io"
