@@ -116,9 +116,7 @@ func (ws *WalletServer) CreateTransaction(w http.ResponseWriter, req *http.Reque
 			io.WriteString(w, string(utils.JsonStatus("fail 3")))
 			return
 		}
-		fmt.Println("-------------------------------")
-		fmt.Println(resp.StatusCode)
-		fmt.Println("-------------------------------")
+
 		if resp.StatusCode == 201 {
 			io.WriteString(w, string(utils.JsonStatus("success")))
 			return
