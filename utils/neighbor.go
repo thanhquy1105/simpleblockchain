@@ -66,7 +66,7 @@ func GetHost() string {
 	// 	return "127.0.0.1"
 	// }
 	// fmt.Println(address)
-	// return address[8]
+	// return address[0]
 
 	return "127.0.0.1"
 

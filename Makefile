@@ -10,4 +10,4 @@ blockchain_server2:
 wallet_server:
 	go run ./wallet_server/main.go ./wallet_server/wallet_server.go -port 8080
 
-.PHONY: blockchain_server wallet_server blockchain_server1 blockchain_server2
+.PHONY: blockchain_server0 wallet_server blockchain_server1 blockchain_server2
