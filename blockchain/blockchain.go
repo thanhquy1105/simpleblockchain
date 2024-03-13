@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -44,6 +45,18 @@ func NewBlock(nonce int, previousHash [32]byte, transactions []*Transaction) *Bl
 	return b
 }
 
+func (b *Block) PreviousHash() [32]byte {
+	return b.previousHash
+}
+
+func (b *Block) Nonce() int {
+	return b.nonce
+}
+
+func (b *Block) Transaction() []*Transaction {
+	return b.transactions
+}
+
 func (b *Block) Print() {
 	fmt.Printf("timestamp	%d\n", b.timestamp)
 	fmt.Printf("nonce		%d\n", b.nonce)
@@ -72,6 +85,27 @@ func (b *Block) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func (b *Block) UnmarshalJSON(data []byte) error {
+	var previousHash string
+	v := &struct {
+		Timestamp    *int64          `json:"timestamp"`
+		Nonce        *int            `json:"nonce"`
+		PreviousHash *string         `json:"previous_hash"`
+		Transaction  *[]*Transaction `json:"transactions"`
+	}{
+		Timestamp:    &b.timestamp,
+		Nonce:        &b.nonce,
+		PreviousHash: &previousHash,
+		Transaction:  &b.transactions,
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	ph, _ := hex.DecodeString(*v.PreviousHash)
+	copy(b.previousHash[:], ph[:32])
+	return nil
+}
+
 type Blockchain struct {
 	transactionPool   []*Transaction
 	chain             []*Block
@@ -92,8 +126,13 @@ func NewBlockchain(blockchainAddress string, port uint16) *Blockchain {
 	return bc
 }
 
+func (bc *Blockchain) Chain() []*Block {
+	return bc.chain
+}
+
 func (bc *Blockchain) Run() {
 	bc.StartSyncNeighbors()
+	bc.ResolveConflicts()
 }
 
 func (bc *Blockchain) SetNeighbor() {
@@ -123,10 +162,22 @@ func (bc *Blockchain) ClearTransactionPool() {
 
 func (bc *Blockchain) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Blocks []*Block `json:"chains"`
+		Blocks []*Block `json:"chain"`
 	}{
 		Blocks: bc.chain,
 	})
+}
+
+func (bc *Blockchain) UnmarshalJSON(data []byte) error {
+	v := &struct {
+		Blocks *[]*Block `json:"chain"`
+	}{
+		Blocks: &bc.chain,
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (bc *Blockchain) CreateBlock(nonce int, previousHash [32]byte) *Block {
@@ -159,8 +210,6 @@ func (bc *Blockchain) CreateTransaction(sender string, recipient string, value f
 	senderPublicKey *ecdsa.PublicKey, s *utils.Signature) bool {
 	isTransacted := bc.AddTransaction(sender, recipient, value, senderPublicKey, s)
 
-	// ToDO
-	// SYnc
 	if isTransacted {
 		for _, n := range bc.neighbors {
 			publicKeyStr := fmt.Sprintf("%064x%064x", senderPublicKey.X.Bytes(), senderPublicKey.Y.Bytes())
@@ -258,6 +307,14 @@ func (bc *Blockchain) Mining() bool {
 	previousHash := bc.LastBlock().Hash()
 	bc.CreateBlock(nonce, previousHash)
 	fmt.Println("action=mining, status=success")
+
+	for _, n := range bc.neighbors {
+		endpoint := fmt.Sprintf("http://%s/consensus", n)
+		client := &http.Client{}
+		req, _ := http.NewRequest("PUT", endpoint, nil)
+		resp, _ := client.Do(req)
+		log.Printf("%v", resp)
+	}
 	return true
 }
 
@@ -281,6 +338,54 @@ func (bc *Blockchain) CalculateTotalAmount(blockchainAddress string) float32 {
 		}
 	}
 	return totalAmount
+}
+
+func (bc *Blockchain) ValidChain(chain []*Block) bool {
+	preBlock := chain[0]
+	currentIndex := 1
+	for currentIndex < len(chain) {
+		b := chain[currentIndex]
+		if b.previousHash != preBlock.Hash() {
+			return false
+		}
+
+		if !bc.ValidProof(b.Nonce(), b.PreviousHash(), b.Transaction(), MINING_DIFFICULTY) {
+			return false
+		}
+		preBlock = b
+		currentIndex += 1
+	}
+	return true
+}
+
+func (bc *Blockchain) ResolveConflicts() bool {
+	var longestChain []*Block = nil
+	maxLength := len(bc.chain)
+
+	for _, n := range bc.neighbors {
+		endpoint := fmt.Sprintf("http://%s/chain", n)
+		resp, _ := http.Get(endpoint)
+		if resp.StatusCode == 200 {
+			var bcResp Blockchain
+			decoder := json.NewDecoder(resp.Body)
+			_ = decoder.Decode(&bcResp)
+
+			chain := bcResp.Chain()
+
+			if len(chain) > maxLength && bc.ValidChain(chain) {
+				maxLength = len(chain)
+				longestChain = chain
+			}
+		}
+	}
+
+	if longestChain != nil {
+		bc.chain = longestChain
+		log.Println("Resolve conflicts replaced")
+		return true
+	}
+	log.Println("Resolve conflicts not replaced")
+	return false
 }
 
 type Transaction struct {
@@ -310,6 +415,22 @@ func (t *Transaction) MarshalJSON() ([]byte, error) {
 		Recipient: t.recipientBlockchainAddress,
 		Value:     t.value,
 	})
+}
+
+func (t *Transaction) UnmarshalJSON(data []byte) error {
+	v := &struct {
+		Sender    *string  `json:"sender_blockchain_address"`
+		Recipient *string  `json:"recipient_blockchain_address"`
+		Value     *float32 `json:"value"`
+	}{
+		Sender:    &t.senderBlockchainAddress,
+		Recipient: &t.recipientBlockchainAddress,
+		Value:     &t.value,
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	return nil
 }
 
 type TransactionRequest struct {
