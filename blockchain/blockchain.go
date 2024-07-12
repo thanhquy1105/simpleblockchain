@@ -115,6 +115,8 @@ type Blockchain struct {
 
 	neighbors    []string
 	muxNeighbors sync.Mutex
+
+	// lotteryPool []string
 }
 
 func NewBlockchain(blockchainAddress string, port uint16) *Blockchain {
@@ -292,6 +294,12 @@ func (bc *Blockchain) ProofOfWork() int {
 		nonce++
 	}
 	return nonce
+}
+
+func (bc *Blockchain) ProofOfStake() int {
+	// transactions := bc.CopyTransactionPool()
+
+	return 0
 }
 
 func (bc *Blockchain) Mining() bool {
