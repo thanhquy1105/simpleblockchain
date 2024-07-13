@@ -380,7 +380,7 @@ func (bc *Blockchain) ResolveConflicts() bool {
 
 			chain := bcResp.Chain()
 
-			if len(bc.chain) == 1 || len(chain) > maxLength && bc.ValidChain(chain) {
+			if maxLength == 1 || len(chain) > maxLength && bc.ValidChain(chain) {
 				maxLength = len(chain)
 				longestChain = chain
 			}
