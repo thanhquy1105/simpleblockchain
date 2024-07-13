@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 )
 
@@ -14,15 +15,15 @@ func main() {
 	port := flag.Uint("port", 5000, "TCP port Number for Blockchain Server ")
 	flag.Parse()
 
-	// var balance int
+	var balance int64
 
-	// fmt.Printf("Enter token balance: ")
-	// _, err := fmt.Scanf("%d", &balance)
-	// if err != nil {
-	// 	return
-	// }
+	fmt.Printf("Enter token balance: ")
+	_, err := fmt.Scanf("%d", &balance)
+	if err != nil {
+		return
+	}
 
-	app := NewBlockchainServer(uint16(*port))
+	app := NewBlockchainServer(balance, uint16(*port))
 	app.Run()
 	// walletMiner := wallet.NewWallet()
 	// walletA := wallet.NewWallet()

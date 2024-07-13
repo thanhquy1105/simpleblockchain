@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,11 +27,11 @@ const (
 	BLOCKCHAIN_PORT_RANGE_END         = 5003
 	NEIGHBOR_IP_RANGE_START           = 0
 	NEIGHBOR_IP_RANGE_END             = 1
-	BLOCKCHAIN_NEIGHBOR_SYNC_TIME_SEC = 20
+	BLOCKCHAIN_NEIGHBOR_SYNC_TIME_SEC = 10
 )
 
 type Block struct {
-	nonce        int
+	// nonce        int
 	previousHash [32]byte
 	timestamp    int64
 	transactions []*Transaction
@@ -39,7 +40,7 @@ type Block struct {
 func NewBlock(nonce int, previousHash [32]byte, transactions []*Transaction) *Block {
 	b := new(Block)
 	b.timestamp = time.Now().UnixNano()
-	b.nonce = nonce
+	// b.nonce = nonce
 	b.previousHash = previousHash
 	b.transactions = transactions
 	return b
@@ -49,9 +50,9 @@ func (b *Block) PreviousHash() [32]byte {
 	return b.previousHash
 }
 
-func (b *Block) Nonce() int {
-	return b.nonce
-}
+// func (b *Block) Nonce() int {
+// 	return b.nonce
+// }
 
 func (b *Block) Transaction() []*Transaction {
 	return b.transactions
@@ -59,7 +60,7 @@ func (b *Block) Transaction() []*Transaction {
 
 func (b *Block) Print() {
 	fmt.Printf("timestamp	%d\n", b.timestamp)
-	fmt.Printf("nonce		%d\n", b.nonce)
+	// fmt.Printf("nonce		%d\n", b.nonce)
 	fmt.Printf("previous_hash	%x\n", b.previousHash)
 	for _, t := range b.transactions {
 		t.Print()
@@ -73,13 +74,13 @@ func (b *Block) Hash() [32]byte {
 
 func (b *Block) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Timestamp    int64          `json:"timestamp"`
-		Nonce        int            `json:"nonce"`
+		Timestamp int64 `json:"timestamp"`
+		// Nonce        int            `json:"nonce"`
 		PreviousHash string         `json:"previous_hash"`
 		Transactions []*Transaction `json:"transactions"`
 	}{
-		Timestamp:    b.timestamp,
-		Nonce:        b.nonce,
+		Timestamp: b.timestamp,
+		// Nonce:        b.nonce,
 		PreviousHash: fmt.Sprintf("%x", b.previousHash),
 		Transactions: b.transactions,
 	})
@@ -88,13 +89,13 @@ func (b *Block) MarshalJSON() ([]byte, error) {
 func (b *Block) UnmarshalJSON(data []byte) error {
 	var previousHash string
 	v := &struct {
-		Timestamp    *int64          `json:"timestamp"`
-		Nonce        *int            `json:"nonce"`
+		Timestamp *int64 `json:"timestamp"`
+		// Nonce        *int            `json:"nonce"`
 		PreviousHash *string         `json:"previous_hash"`
 		Transaction  *[]*Transaction `json:"transactions"`
 	}{
-		Timestamp:    &b.timestamp,
-		Nonce:        &b.nonce,
+		Timestamp: &b.timestamp,
+		// Nonce:        &b.nonce,
 		PreviousHash: &previousHash,
 		Transaction:  &b.transactions,
 	}
@@ -113,7 +114,8 @@ type Blockchain struct {
 	port              uint16
 	mux               sync.Mutex
 
-	neighbors    []string
+	neighbors    []utils.NeighborNode
+	validators   []utils.NeighborNode
 	muxNeighbors sync.Mutex
 
 	// lotteryPool []string
@@ -138,9 +140,11 @@ func (bc *Blockchain) Run() {
 }
 
 func (bc *Blockchain) SetNeighbor() {
-	bc.neighbors = utils.FindNeightbors(utils.GetHost(), bc.port, NEIGHBOR_IP_RANGE_START, NEIGHBOR_IP_RANGE_END,
+	bc.neighbors, bc.validators = utils.FindNeightbors(utils.GetHost(), bc.port, NEIGHBOR_IP_RANGE_START, NEIGHBOR_IP_RANGE_END,
 		BLOCKCHAIN_PORT_RANGE_START, BLOCKCHAIN_PORT_RANGE_END)
-	log.Printf("%v", bc.neighbors)
+
+	log.Printf("%v\n", bc.neighbors)
+	log.Printf("%v\n", bc.validators)
 }
 
 func (bc *Blockchain) SyncNeighbors() {
@@ -187,7 +191,7 @@ func (bc *Blockchain) CreateBlock(nonce int, previousHash [32]byte) *Block {
 	bc.chain = append(bc.chain, b)
 	bc.transactionPool = []*Transaction{}
 	for _, n := range bc.neighbors {
-		endpoint := fmt.Sprintf("http://%s/transactions", n)
+		endpoint := fmt.Sprintf("http://%s/transactions", n.HostPort)
 		client := &http.Client{}
 		req, _ := http.NewRequest("DELETE", endpoint, nil)
 		resp, _ := client.Do(req)
@@ -225,7 +229,7 @@ func (bc *Blockchain) CreateTransaction(sender string, recipient string, value f
 			}
 			m, _ := json.Marshal(bt)
 			buf := bytes.NewBuffer(m)
-			endpoint := fmt.Sprintf("http://%s/transactions", n)
+			endpoint := fmt.Sprintf("http://%s/transactions", n.HostPort)
 			client := &http.Client{}
 			req, _ := http.NewRequest("PUT", endpoint, buf)
 			resp, _ := client.Do(req)
@@ -280,7 +284,8 @@ func (bc *Blockchain) CopyTransactionPool() []*Transaction {
 
 func (bc *Blockchain) ValidProof(nonce int, previousHash [32]byte, transactions []*Transaction, difficulty int) bool {
 	zeros := strings.Repeat("0", difficulty)
-	guessBlock := Block{nonce, previousHash, 0, transactions}
+	// guessBlock := Block{nonce, previousHash, 0, transactions}
+	guessBlock := Block{previousHash, 0, transactions}
 	guessHashStr := fmt.Sprintf("%x", guessBlock.Hash())
 	fmt.Println(guessHashStr)
 	return guessHashStr[:difficulty] == zeros
@@ -296,10 +301,15 @@ func (bc *Blockchain) ProofOfWork() int {
 	return nonce
 }
 
-func (bc *Blockchain) ProofOfStake() int {
-	// transactions := bc.CopyTransactionPool()
+func (bc *Blockchain) ProofOfStake() bool {
+	// randomly pick winner from lottery pool
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	lotteryWinner := bc.validators[r.Intn(len(bc.validators))]
 
-	return 0
+	endpoint := fmt.Sprintf("http://%s/mine", lotteryWinner.HostPort)
+	resp, _ := http.Get(endpoint)
+
+	return resp.StatusCode == 200
 }
 
 func (bc *Blockchain) Mining() bool {
@@ -311,13 +321,14 @@ func (bc *Blockchain) Mining() bool {
 	}
 
 	bc.AddTransaction(MINING_SENDER, bc.blockchainAddress, MINING_REWARD, nil, nil)
-	nonce := bc.ProofOfWork()
+	// nonce := bc.ProofOfWork()
 	previousHash := bc.LastBlock().Hash()
-	bc.CreateBlock(nonce, previousHash)
+	// bc.CreateBlock(nonce, previousHash)
+	bc.CreateBlock(0, previousHash)
 	fmt.Println("action=mining, status=success")
 
 	for _, n := range bc.neighbors {
-		endpoint := fmt.Sprintf("http://%s/consensus", n)
+		endpoint := fmt.Sprintf("http://%s/consensus", n.HostPort)
 		client := &http.Client{}
 		req, _ := http.NewRequest("PUT", endpoint, nil)
 		resp, _ := client.Do(req)
@@ -356,10 +367,9 @@ func (bc *Blockchain) ValidChain(chain []*Block) bool {
 		if b.previousHash != preBlock.Hash() {
 			return false
 		}
-
-		if !bc.ValidProof(b.Nonce(), b.PreviousHash(), b.Transaction(), MINING_DIFFICULTY) {
-			return false
-		}
+		// if !bc.ValidProof(b.Nonce(), b.PreviousHash(), b.Transaction(), MINING_DIFFICULTY) {
+		// 	return false
+		// }
 		preBlock = b
 		currentIndex += 1
 	}
@@ -371,7 +381,7 @@ func (bc *Blockchain) ResolveConflicts() bool {
 	maxLength := len(bc.chain)
 
 	for _, n := range bc.neighbors {
-		endpoint := fmt.Sprintf("http://%s/chain", n)
+		endpoint := fmt.Sprintf("http://%s/chain", n.HostPort)
 		resp, _ := http.Get(endpoint)
 		if resp.StatusCode == 200 {
 			var bcResp Blockchain

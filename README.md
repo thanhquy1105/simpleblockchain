@@ -1,5 +1,5 @@
 # A simplified blockchain implementation in Golang
-This repo simulate how blockchain operates with PoW
+This branch of repo simulate how blockchain operates with Proof Of Stake
 ## What did I do in this repo:
 - Create Blockchain
     - Create Block
